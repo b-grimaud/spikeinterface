@@ -121,6 +121,10 @@ class DetectAndRemoveBadChannelsRecording(ChannelSliceRecording):
             channel_ids=new_channel_ids,
         )
 
+        # Do not want these, since they are not _kwargs of `DetectAndRemoveBadChannelsRecording`
+        self._kwargs.pop("channel_ids")
+        self._kwargs.pop("renamed_channel_ids")
+
         self._kwargs.update({"bad_channel_ids": bad_channel_ids})
         if channel_labels is not None:
             self._kwargs.update({"channel_labels": channel_labels})
@@ -129,11 +133,11 @@ class DetectAndRemoveBadChannelsRecording(ChannelSliceRecording):
         self._kwargs.update(all_bad_channels_kwargs)
 
 
-detect_and_remove_bad_channels = define_function_handling_dict_from_class(
-    source_class=DetectAndRemoveBadChannelsRecording, name="detect_and_remove_bad_channels"
-)
 DetectAndRemoveBadChannelsRecording.__doc__ = DetectAndRemoveBadChannelsRecording.__doc__.format(
     _bad_channel_detection_kwargs_doc
+)
+detect_and_remove_bad_channels = define_function_handling_dict_from_class(
+    source_class=DetectAndRemoveBadChannelsRecording, name="detect_and_remove_bad_channels"
 )
 
 
@@ -217,13 +221,13 @@ def detect_bad_channels(
 
     # Adjust random chunk kwargs based on method
     if method in ("std", "mad"):
-        random_chunk_kwargs["return_scaled"] = False
+        random_chunk_kwargs["return_in_uV"] = False
         random_chunk_kwargs["concatenated"] = True
     elif method == "coherence+psd":
-        random_chunk_kwargs["return_scaled"] = True
+        random_chunk_kwargs["return_in_uV"] = True
         random_chunk_kwargs["concatenated"] = False
     elif method == "neighborhood_r2":
-        random_chunk_kwargs["return_scaled"] = False
+        random_chunk_kwargs["return_in_uV"] = False
         random_chunk_kwargs["concatenated"] = False
 
     random_data = get_random_data_chunks(recording_hp, **random_chunk_kwargs)

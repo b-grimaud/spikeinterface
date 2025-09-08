@@ -234,7 +234,7 @@ def test_BaseRecording(create_cache_folder):
 
     # Both return_scaled and return_in_uV raise error when no gain_to_uV/offset_to_uV properties
     with pytest.raises(ValueError):
-        traces_float32 = rec_int16.get_traces(return_in_uV=True)
+        traces_float32 = rec_int16.get_traces(return_scaled=True)
     with pytest.raises(ValueError):
         traces_float32 = rec_int16.get_traces(return_in_uV=True)
 
@@ -344,6 +344,38 @@ def test_BaseRecording(create_cache_folder):
     for annotation_name in rec2.get_annotation_keys():
         assert rec2.get_annotation(annotation_name) == rec_zarr2.get_annotation(annotation_name)
         assert rec2.get_annotation(annotation_name) == rec_zarr2_loaded.get_annotation(annotation_name)
+
+
+def test_json_pickle_equivalence(create_cache_folder):
+    """
+    For a json-ifyable recording, the json and pickle outputs created by `dump` should be the same
+    (except for the probe information). We check this here for a saved-then-loaded recording,
+    which tests if relative paths are dealt with in the same way.
+    """
+
+    rec = generate_recording(durations=[1])
+    cache_folder = create_cache_folder
+
+    json_file_path = cache_folder / "recording.json"
+    pkl_file_path = cache_folder / "recording.pkl"
+
+    rec.dump(json_file_path, relative_to=cache_folder)
+    rec.dump(pkl_file_path, relative_to=cache_folder)
+
+    with open(json_file_path, "r") as f:
+        data_json = json.load(f)
+
+    with open(pkl_file_path, "rb") as f:
+        data_pickle = pickle.load(f)
+
+    for key, value in data_json.items():
+        # skip probe info, since pickle keeps some additional information
+        if key not in ["properties"]:
+            if isinstance(value, dict):
+                for sub_key, sub_value in value.items():
+                    assert np.all(sub_value == data_pickle[key][sub_key])
+            else:
+                assert np.all(value == data_pickle[key])
 
 
 def test_interleaved_probegroups():
