@@ -499,6 +499,7 @@ def final_cleaning_circus(
 
     from spikeinterface.sortingcomponents.tools import create_sorting_analyzer_with_existing_templates
     from spikeinterface.curation.auto_merge import auto_merge_units
+    job_kwargs['n_jobs'] = 1
 
     # First we compute the needed extensions
     analyzer = create_sorting_analyzer_with_existing_templates(sorting, recording, templates)
