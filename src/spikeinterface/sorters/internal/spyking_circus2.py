@@ -489,6 +489,7 @@ def final_cleaning_circus(
         {"template_similarity": {"template_diff_thresh": i}, "unit_locations": {"max_distance_um": max_distance_um}}
         for i in template_diff_thresh
     ]
+    job_kwargs['n_jobs'] = 1
     final_sa = auto_merge_units(
         analyzer,
         presets=presets,
