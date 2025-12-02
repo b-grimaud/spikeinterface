@@ -442,7 +442,7 @@ Let’s use here the ``locally_exclusive`` method for detection and the
 
     from spikeinterface.sortingcomponents.peak_localization import localize_peaks
 
-    peak_locations = localize_peaks(rec, peaks, method='center_of_mass', radius_um=50., **job_kwargs)
+    peak_locations = localize_peaks(rec, peaks, method='center_of_mass', method_kwargs=dict(radius_um=50.), **job_kwargs)
 
 
 
@@ -1138,3 +1138,12 @@ And push the results to sortingview webased viewer
 .. code:: python
 
    si.plot_sorting_summary(analyzer_clean, backend='sortingview')
+
+
+
+Additional resources
+--------------------
+
+For additional resources about Neuropixels, you can take a look to the `awesome_neuropixel`_ github repo.
+
+.. _awesome_neuropixel: https://github.com/Julie-Fabre/awesome_neuropixels
