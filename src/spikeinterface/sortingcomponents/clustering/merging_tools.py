@@ -21,7 +21,6 @@ except:
     pass
 from .tools import aggregate_sparse_features, FeaturesLoader
 
-
 DEBUG = False
 
 
@@ -396,7 +395,6 @@ class ProjectDistribution:
                     tsvd = TruncatedSVD(n_pca_features, random_state=seed)
 
                 feat = tsvd.fit_transform(feat)
-
             else:
                 feat = feat
                 tsvd = None

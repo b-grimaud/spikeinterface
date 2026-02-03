@@ -5,9 +5,9 @@ import numpy as np
 from typing import Literal, Optional
 from math import ceil
 
+from .base import minimum_spike_dtype
 from .basesorting import SpikeVectorSortingSegment
 from .numpyextractors import NumpySorting
-from .basesorting import minimum_spike_dtype
 
 from probeinterface import Probe, generate_linear_probe, generate_multi_columns_probe
 
@@ -174,7 +174,7 @@ def generate_sorting(
             spikes.append(spikes_on_borders)
 
     spikes = np.concatenate(spikes)
-    spikes = spikes[np.lexsort((spikes["sample_index"], spikes["segment_index"]))]
+    spikes = spikes[np.lexsort((spikes["unit_index"], spikes["sample_index"], spikes["segment_index"]))]
 
     sorting = NumpySorting(spikes, sampling_frequency, unit_ids)
 
@@ -1735,7 +1735,7 @@ def generate_templates(
         An optional dict containing parameters per units.
         Keys are parameter names:
 
-            * "alpha": amplitude of the action potential in a.u. (default range: (6'000-9'000))
+            * "alpha": amplitude of the action potential in a.u. (default range: (100.0 - 500.0))
             * "depolarization_ms": the depolarization interval in ms (default range: (0.09-0.14))
             * "repolarization_ms": the repolarization interval in ms (default range: (0.5-0.8))
             * "recovery_ms": the recovery interval in ms (default range: (1.0-1.5))

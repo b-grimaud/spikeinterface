@@ -226,19 +226,31 @@ spikeinterface.postprocessing
     .. autofunction:: compute_correlograms
     .. autofunction:: compute_acgs_3d
     .. autofunction:: compute_isi_histograms
-    .. autofunction:: get_template_metric_names
     .. autofunction:: align_sorting
 
 
-spikeinterface.qualitymetrics
------------------------------
+spikeinterface.metrics
+----------------------
 
-.. automodule:: spikeinterface.qualitymetrics
+.. automodule:: spikeinterface.metrics.quality
 
     .. autofunction:: compute_quality_metrics
     .. autofunction:: get_quality_metric_list
     .. autofunction:: get_quality_pca_metric_list
-    .. autofunction:: get_default_qm_params
+    .. autofunction:: get_default_quality_metrics_params
+
+.. automodule:: spikeinterface.metrics.template
+
+    .. autofunction:: compute_template_metrics
+    .. autofunction:: get_template_metric_list
+    .. autofunction:: get_default_template_metrics_params
+    .. autofunction:: get_single_channel_template_metric_names
+    .. autofunction:: get_multi_channel_template_metric_names
+
+.. automodule:: spikeinterface.metrics.spiketrain
+
+    .. autofunction:: get_spiketrain_metric_list
+    .. autofunction:: get_default_spiketrain_metrics_params
 
 
 spikeinterface.sorters
@@ -361,9 +373,10 @@ spikeinterface.curation
     .. autofunction:: remove_redundant_units
     .. autofunction:: remove_duplicated_spikes
     .. autofunction:: remove_excess_spikes
-    .. autofunction:: auto_label_units
+    .. autofunction:: model_based_label_units
     .. autofunction:: load_model
     .. autofunction:: train_model
+    .. autofunction:: unitrefine_label_units
 
 Curation Model
 ~~~~~~~~~~~~~~
@@ -508,9 +521,6 @@ spikeinterface.benchmark
 .. automodule:: spikeinterface.benchmark.benchmark_peak_localization
 
     .. autoclass:: PeakLocalizationStudy
-
-.. automodule:: spikeinterface.benchmark.benchmark_peak_localization
-
     .. autoclass:: UnitLocalizationStudy
 
 .. automodule:: spikeinterface.benchmark.benchmark_motion_estimation

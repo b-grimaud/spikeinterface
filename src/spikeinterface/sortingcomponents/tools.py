@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import shutil
 
 try:
     import psutil
@@ -9,28 +10,32 @@ try:
 except:
     HAVE_PSUTIL = False
 
-from spikeinterface.core.sparsity import ChannelSparsity
 from spikeinterface.core.waveform_tools import extract_waveforms_to_single_buffer
-from spikeinterface.core.job_tools import split_job_kwargs, fix_job_kwargs
+from spikeinterface.core.job_tools import fix_job_kwargs
 from spikeinterface.core.sortinganalyzer import create_sorting_analyzer
 from spikeinterface.core.sparsity import ChannelSparsity
 from spikeinterface.core.sparsity import compute_sparsity
-from spikeinterface.core.analyzer_extension_core import ComputeTemplates, ComputeNoiseLevels
 from spikeinterface.core.template_tools import get_template_extremum_channel_peak_shift
 from spikeinterface.core.recording_tools import get_noise_levels
+from spikeinterface.core.sorting_tools import get_numba_vector_to_list_of_spiketrain
 
 
-def make_multi_method_doc(methods, ident="    "):
+def make_multi_method_doc(methods, indent="    "):
     doc = ""
 
     doc += "method : " + ", ".join(f"'{method.name}'" for method in methods) + "\n"
-    doc += ident + "    Method to use.\n"
+    doc += indent + "Method to use.\n"
 
     for method in methods:
         doc += "\n"
-        doc += ident + ident + f"arguments for method='{method.name}'"
+        doc += indent + indent + f"* arguments for method='{method.name}'\n"
         for line in method.params_doc.splitlines():
-            doc += ident + ident + line + "\n"
+            # add '* ' before the start of the text of each line
+            if len(line.strip()) == 0:
+                continue
+            line = line.lstrip()
+            line = "* " + line
+            doc += indent + indent + indent + line + "\n"
 
     return doc
 
@@ -65,6 +70,7 @@ def extract_waveform_at_max_channel(rec, peaks, ms_before=0.5, ms_after=1.5, job
         nafter,
         mode="shared_memory",
         return_in_uV=False,
+        dtype="float32",
         sparsity_mask=sparsity_mask,
         copy=True,
         verbose=False,
@@ -361,8 +367,25 @@ def _get_optimal_n_jobs(job_kwargs, ram_requested, memory_limit=0.25):
     return job_kwargs
 
 
+def _check_cache_memory(recording, memory_limit, total_memory):
+    if total_memory is None:
+        if HAVE_PSUTIL:
+            assert 0 < memory_limit < 1, "memory_limit should be in ]0, 1["
+            memory_usage = memory_limit * psutil.virtual_memory().available
+            return recording.get_total_memory_size() < memory_usage
+        else:
+            return False
+    else:
+        return recording.get_total_memory_size() < total_memory
+
+
 def cache_preprocessing(
-    recording, mode="memory", memory_limit=0.5, total_memory=None, delete_cache=True, **extra_kwargs
+    recording,
+    mode="memory",
+    memory_limit=0.5,
+    total_memory=None,
+    job_kwargs=None,
+    folder=None,
 ):
     """
     Cache the preprocessing of a recording object
@@ -378,52 +401,70 @@ def cache_preprocessing(
         The memory limit in fraction of available memory
     total_memory: str, Default None
         The total memory to use for the job in bytes
-    delete_cache: bool
-        If True, delete the cache after the job
-    **extra_kwargs: dict
-        The extra kwargs for the job
 
     Returns
     -------
 
     recording: Recording
         The cached recording object
+    cache_info: dict
+        Dict containing info for cleaning cache
     """
 
-    save_kwargs, job_kwargs = split_job_kwargs(extra_kwargs)
+    job_kwargs = fix_job_kwargs(job_kwargs)
+
+    cache_info = dict(mode=mode)
 
     if mode == "memory":
         if total_memory is None:
-            if HAVE_PSUTIL:
-                assert 0 < memory_limit < 1, "memory_limit should be in ]0, 1["
-                memory_usage = memory_limit * psutil.virtual_memory().available
-                if recording.get_total_memory_size() < memory_usage:
-                    recording = recording.save_to_memory(format="memory", shared=True, **job_kwargs)
-                else:
-                    import warnings
-
-                    warnings.warn("Recording too large to be preloaded in RAM...")
-            else:
-                import warnings
-
-                warnings.warn("psutil is required to preload in memory given only a fraction of available memory")
-        else:
-            if recording.get_total_memory_size() < total_memory:
+            mem_ok = _check_cache_memory(recording, memory_limit, total_memory)
+            if mem_ok:
                 recording = recording.save_to_memory(format="memory", shared=True, **job_kwargs)
             else:
                 import warnings
 
                 warnings.warn("Recording too large to be preloaded in RAM...")
+                cache_info["mode"] = "no-cache"
+
     elif mode == "folder":
-        recording = recording.save_to_folder(**extra_kwargs)
+        assert folder is not None, "cache_preprocessing(): folder must be given"
+        recording = recording.save_to_folder(folder=folder, **job_kwargs)
+        cache_info["folder"] = folder
     elif mode == "zarr":
-        recording = recording.save_to_zarr(**extra_kwargs)
+        assert folder is not None, "cache_preprocessing(): folder must be given"
+        recording = recording.save_to_zarr(folder=folder, **job_kwargs)
+        cache_info["folder"] = folder
     elif mode == "no-cache":
         recording = recording
+    elif mode == "auto":
+        mem_ok = _check_cache_memory(recording, memory_limit, total_memory)
+        if mem_ok:
+            # first try memory first
+            recording = recording.save_to_memory(format="memory", shared=True, **job_kwargs)
+            cache_info["mode"] = "memory"
+        elif folder is not None:
+            # then try folder
+            recording = recording.save_to_folder(folder=folder, **job_kwargs)
+            cache_info["mode"] = "folder"
+            cache_info["folder"] = folder
+        else:
+            recording = recording
+            cache_info["mode"] = "no-cache"
     else:
         raise ValueError(f"cache_preprocessing() wrong mode={mode}")
 
-    return recording
+    return recording, cache_info
+
+
+def clean_cache_preprocessing(cache_info):
+    """
+    Delete folder eventually created by cache_preprocessing().
+    Important : the cached recording must be deleted first.
+    """
+    if cache_info is None or "mode" not in cache_info:
+        return
+    if cache_info["mode"] in ("folder", "zarr"):
+        shutil.rmtree(cache_info["folder"], ignore_errors=True)
 
 
 def remove_empty_templates(templates):
@@ -437,7 +478,14 @@ def remove_empty_templates(templates):
 
 
 def create_sorting_analyzer_with_existing_templates(
-    sorting, recording, templates, remove_empty=True, noise_levels=None
+    sorting,
+    recording,
+    templates,
+    remove_empty=True,
+    noise_levels=None,
+    amplitude_scalings=None,
+    spike_amplitudes=None,
+    spike_locations=None,
 ):
     sparsity = templates.sparsity
     templates_array = templates.get_dense_templates().copy()
@@ -451,6 +499,8 @@ def create_sorting_analyzer_with_existing_templates(
         sparsity = ChannelSparsity(sparsity_mask, non_empty_unit_ids, sparsity.channel_ids)
     else:
         non_empty_sorting = sorting
+
+    from spikeinterface.core.analyzer_extension_core import ComputeTemplates
 
     sa = create_sorting_analyzer(non_empty_sorting, recording, format="memory", sparsity=sparsity)
     sa.compute("random_spikes")
@@ -466,11 +516,53 @@ def create_sorting_analyzer_with_existing_templates(
     sa.extensions["templates"].run_info["runtime_s"] = 0
 
     if noise_levels is not None:
+        from spikeinterface.core.analyzer_extension_core import ComputeNoiseLevels
+
         sa.extensions["noise_levels"] = ComputeNoiseLevels(sa)
         sa.extensions["noise_levels"].params = {}
         sa.extensions["noise_levels"].data["noise_levels"] = noise_levels
         sa.extensions["noise_levels"].run_info["run_completed"] = True
         sa.extensions["noise_levels"].run_info["runtime_s"] = 0
+
+    if amplitude_scalings is not None:
+        from spikeinterface.postprocessing.amplitude_scalings import ComputeAmplitudeScalings
+
+        sa.extensions["amplitude_scalings"] = ComputeAmplitudeScalings(sa)
+        sa.extensions["amplitude_scalings"].params = dict(
+            sparsity=None,
+            max_dense_channels=16,
+            ms_before=templates.ms_before,
+            ms_after=templates.ms_after,
+            handle_collisions=False,
+            delta_collision_ms=2,
+        )
+        sa.extensions["amplitude_scalings"].data["amplitude_scalings"] = amplitude_scalings
+        sa.extensions["amplitude_scalings"].run_info["run_completed"] = True
+        sa.extensions["amplitude_scalings"].run_info["runtime_s"] = 0
+
+    if spike_amplitudes is not None:
+        from spikeinterface.postprocessing.spike_amplitudes import ComputeSpikeAmplitudes
+
+        sa.extensions["spike_amplitudes"] = ComputeSpikeAmplitudes(sa)
+        sa.extensions["spike_amplitudes"].params = dict()
+        sa.extensions["spike_amplitudes"].data["amplitudes"] = spike_amplitudes
+        sa.extensions["spike_amplitudes"].run_info["run_completed"] = True
+        sa.extensions["spike_amplitudes"].run_info["runtime_s"] = 0
+
+    if spike_locations is not None:
+        from spikeinterface.postprocessing.spike_locations import ComputeSpikeLocations
+
+        sa.extensions["spike_locations"] = ComputeSpikeLocations(sa)
+        sa.extensions["spike_locations"].params = dict(
+            ms_before=0.5,
+            ms_after=0.5,
+            spike_retriver_kwargs=None,
+            method="center_of_mass",
+            method_kwargs={},
+        )
+        sa.extensions["spike_locations"].data["spike_locations"] = spike_locations
+        sa.extensions["spike_locations"].run_info["run_completed"] = True
+        sa.extensions["spike_locations"].run_info["runtime_s"] = 0
 
     return sa
 
@@ -495,14 +587,27 @@ def get_shuffled_recording_slices(recording, job_kwargs=None, seed=None):
 
 
 def clean_templates(
-    templates, sparsify_threshold=0.25, noise_levels=None, min_snr=None, max_jitter_ms=None, remove_empty=True
+    templates,
+    sparsify_threshold=0.25,
+    noise_levels=None,
+    min_snr=None,
+    max_jitter_ms=None,
+    remove_empty=True,
+    mean_sd_ratio_threshold=3.0,
+    max_std_per_channel=None,
+    verbose=False,
 ):
     """
     Clean a Templates object by removing empty units and applying sparsity if provided.
     """
 
+    initial_ids = templates.unit_ids.copy()
+
     ## First we sparsify the templates (using peak-to-peak amplitude avoid sign issues)
     if sparsify_threshold is not None:
+        assert noise_levels is not None, "noise_levels must be provided if sparsify_threshold is set"
+        if templates.are_templates_sparse():
+            templates = templates.to_dense()
         sparsity = compute_sparsity(
             templates,
             method="snr",
@@ -510,28 +615,34 @@ def clean_templates(
             noise_levels=noise_levels,
             threshold=sparsify_threshold,
         )
-        if templates.are_templates_sparse():
-            templates = templates.to_dense()
         templates = templates.to_sparse(sparsity)
 
     ## We removed non empty templates
     if remove_empty:
+        n_before = len(templates.unit_ids)
         templates = remove_empty_templates(templates)
+        if verbose:
+            n_after = len(templates.unit_ids)
+            print(f"Removed {n_before - n_after} empty templates")
 
     ## We keep only units with a max jitter
     if max_jitter_ms is not None:
         max_jitter = int(max_jitter_ms * templates.sampling_frequency / 1000.0)
-
+        n_before = len(templates.unit_ids)
         shifts = get_template_extremum_channel_peak_shift(templates)
         to_select = []
         for unit_id in templates.unit_ids:
             if np.abs(shifts[unit_id]) <= max_jitter:
                 to_select += [unit_id]
         templates = templates.select_units(to_select)
+        if verbose:
+            n_after = len(templates.unit_ids)
+            print(f"Removed {n_before - n_after} unaligned templates")
 
     ## We remove units with a low SNR
     if min_snr is not None:
         assert noise_levels is not None, "noise_levels must be provided if min_snr is set"
+        n_before = len(templates.unit_ids)
         sparsity = compute_sparsity(
             templates.to_dense(),
             method="snr",
@@ -541,5 +652,53 @@ def clean_templates(
         )
         to_select = templates.unit_ids[np.flatnonzero(sparsity.mask.sum(axis=1) > 0)]
         templates = templates.select_units(to_select)
+        if verbose:
+            n_after = len(templates.unit_ids)
+            print(f"Removed {n_before - n_after} templates with too low SNR")
+
+    ## Lastly, if stds_at_peak are provided, we remove the templates that have a too high sd_ratio
+    if max_std_per_channel is not None:
+        assert noise_levels is not None, "noise_levels must be provided if max_std_per_channel is given"
+        to_select = []
+        n_before = len(templates.unit_ids)
+        for count, unit_id in enumerate(templates.unit_ids):
+            old_index = np.where(unit_id == initial_ids)[0][0]
+            mask = templates.sparsity.mask[count, :]
+            sd_ratio = np.mean(max_std_per_channel[old_index][mask] / noise_levels[mask])
+            if sd_ratio <= mean_sd_ratio_threshold:
+                to_select += [unit_id]
+        templates = templates.select_units(to_select)
+        if verbose:
+            n_after = len(templates.unit_ids)
+            print(f"Removed {n_before - n_after} templates with too high mean sd / noise ratio")
 
     return templates
+
+
+def compute_sparsity_from_peaks_and_label(peaks, unit_indices, unit_ids, recording, radius_um):
+    """
+    Compute the sparisty after clustering.
+    This uses the peak channel to compute the baricenter of cluster.
+    Then make a radius around it.
+    """
+    # handle only 2D channels
+    channel_locations = recording.get_channel_locations()[:, :2]
+    num_units = unit_ids.size
+    num_chans = recording.channel_ids.size
+
+    vector_to_list_of_spiketrain = get_numba_vector_to_list_of_spiketrain()
+    indices = np.arange(unit_indices.size, dtype=np.int64)
+    list_of_spike_indices = vector_to_list_of_spiketrain(indices, unit_indices, num_units)
+    unit_locations = np.zeros((num_units, 2), dtype=float)
+    sparsity_mask = np.zeros((num_units, num_chans), dtype=bool)
+    for unit_ind in range(num_units):
+        spike_inds = list_of_spike_indices[unit_ind]
+        unit_chans, count = np.unique(peaks[spike_inds]["channel_index"], return_counts=True)
+        weights = count / np.sum(count)
+        unit_loc = np.average(channel_locations[unit_chans, :], weights=weights, axis=0)
+        unit_locations[unit_ind, :] = unit_loc
+        (chan_inds,) = np.nonzero(np.linalg.norm(channel_locations - unit_loc[None, :], axis=1) <= radius_um)
+        sparsity_mask[unit_ind, chan_inds] = True
+
+    sparsity = ChannelSparsity(sparsity_mask, unit_ids, recording.channel_ids)
+    return sparsity, unit_locations
