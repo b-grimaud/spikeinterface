@@ -83,6 +83,7 @@ from .globals import (
     get_global_job_kwargs,
     set_global_job_kwargs,
     reset_global_job_kwargs,
+    is_set_global_job_kwargs_set,
 )
 
 # tools
@@ -96,7 +97,7 @@ from .job_tools import (
     get_best_job_kwargs,
     ensure_n_jobs,
     ensure_chunk_size,
-    ChunkRecordingExecutor,
+    ChunkExecutor,
     split_job_kwargs,
     fix_job_kwargs,
 )
